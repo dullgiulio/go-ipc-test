@@ -12,8 +12,8 @@ import (
 var endianness binary.ByteOrder = binary.LittleEndian
 
 type ident struct {
-	i uint32 // Number of request
-	t uint32 // Type identifier
+	ID   uint32 // Number of request
+	Type uint32 // Type identifier
 }
 
 type typeMapper interface {
@@ -37,29 +37,28 @@ func newSender(w io.Writer, mapper typeMapper) *sender {
 	}
 }
 
-func (s *sender) send(data interface{}) (ident, error) {
+func (s *sender) send(data interface{}, i ident) error {
 	var err error
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	s.ident.i = s.ident.i + 1
-	if s.ident.t, err = s.mapper.typeMap(data); err != nil {
-		return ident{}, err
+	if s.ident.Type, err = s.mapper.typeMap(data); err != nil {
+		return err
 	}
-	if err := binary.Write(s.writer, endianness, &s.ident); err != nil {
-		return ident{}, err
+	if err := binary.Write(s.writer, endianness, &i); err != nil {
+		return err
 	}
 	if err := s.enc.Encode(data); err != nil {
-		return ident{}, err
+		return err
 	}
-	return s.ident, nil
+	return nil
 }
 
 func (s *sender) sendListen(req interface{}, l *listener, pr pointerReceiver) error {
 	var err error
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	s.ident.i = s.ident.i + 1
-	if s.ident.t, err = s.mapper.typeMap(req); err != nil {
+	s.ident.ID = s.ident.ID + 1
+	if s.ident.Type, err = s.mapper.typeMap(req); err != nil {
 		return err
 	}
 	l.registerIdent(pr, s.ident)
@@ -110,7 +109,7 @@ func (l *listener) registerType(pr pointerReceiver, data interface{}) error {
 func (l *listener) registerIdent(pr pointerReceiver, i ident) error {
 	l.mux.Lock()
 	defer l.mux.Unlock()
-	l.recvI[i.i] = pr
+	l.recvI[i.ID] = pr
 	return nil
 }
 
@@ -126,15 +125,15 @@ func (l *listener) accept() error {
 	l.mux.Lock()
 	// First try to get a receiver for this particular message,
 	// Otherwise, try a receiver for this type.
-	rcv, ok := l.recvI[ident.i]
+	rcv, ok := l.recvI[ident.ID]
 	if !ok {
-		rcv, ok = l.recvT[ident.t]
+		rcv, ok = l.recvT[ident.Type]
 		if !ok {
 			l.mux.Unlock()
-			return fmt.Errorf("No receiver for id %d, type ID %d", ident.i, ident.t)
+			return fmt.Errorf("No receiver for id %d, type ID %d", ident.ID, ident.Type)
 		}
 	}
-	delete(l.recvI, ident.i)
+	delete(l.recvI, ident.ID)
 	l.mux.Unlock()
 
 	data := rcv.pointer()
