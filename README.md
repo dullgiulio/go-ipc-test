@@ -1,2 +1,2 @@
-# msgbud
+# Go IPC test
 WIP
